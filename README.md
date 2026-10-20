@@ -58,6 +58,32 @@
 2. **清单清零前，不进下一轮全面评审。** 每条标"已修 / 未修 / 不改"，还有"未修"的就继续修。
 3. **修完先做定点快检。** 只渲染改动的片段，派一个轻量评审只看改动区间前后 ±0.5 秒；快检通过后才渲染整片，做全面复查。
 
+## 新增：只重渲改动的镜头
+
+返工慢，很大一部分是因为改一个字也要把整片重新渲染一遍。`scripts/render-scenes.mjs` 把 HyperFrames 工程按镜头切开渲染：
+
+- 每个镜头按内容算一个哈希（镜头文件、引用的素材、根层落在这个镜头里的元素、渲染参数）。哈希没变，就直接复用上次的片段。
+- 只重渲改动的镜头，然后用 ffmpeg 无损拼接、套上总混音。拼接本身只要几秒。
+- 给每个重渲镜头的前后切点各出一张接缝检查图（切点前后 ±0.5 秒，共 6 帧），定点快检直接看这张图。
+- 根层的 GSAP 时间轴不用改：脚本会把它换成"从片段起点开始播"的代理时间轴。
+
+```bash
+node scripts/render-scenes.mjs path/to/project --dry-run   # 先看哪些镜头要重渲
+node scripts/render-scenes.mjs path/to/project             # draft 画质，评审用
+node scripts/render-scenes.mjs path/to/project --quality delivery --out renders/final.mp4
+```
+
+```text
+  · f01        0.000 →    6.000  复用
+  ▶ f02        6.000 →   12.000  重渲（内容变了）
+  · f03       12.000 →   23.400  复用
+要渲染 1 个，复用 10 个。
+```
+
+规则里也配了一张"改动类型 → 重渲范围"的对照表：只改混音不渲染画面，改一个镜头只渲染这一个；全面评审只在第一版成片、时间轴整体变化、交付前这三个节点做。
+
+> 要求：Node 18+、HyperFrames CLI、ffmpeg/ffprobe（不在 PATH 上时设置 `FFMPEG_DIR`）。每个镜头要做成独立的 composition，由根层的宿主引用。首次运行会自动安装 HTML 解析器 `linkedom`。
+
 ## 能测量的，全部量出来
 
 <p align="center"><img src="assets/04-quality-bar.png" alt="质量标准" width="100%"></p>
@@ -94,6 +120,7 @@
 git clone https://github.com/vincentcrc/llm-motion-director.git
 mkdir -p ~/.claude/skills/LLM专用生视频规则
 cp llm-motion-director/LLM专用生视频规则skill.md ~/.claude/skills/LLM专用生视频规则/SKILL.md
+cp -r llm-motion-director/scripts ~/.claude/skills/LLM专用生视频规则/
 ```
 
 > Claude Code 只认技能目录里名为 `SKILL.md` 的文件，所以复制时要改成这个名字。
@@ -132,7 +159,8 @@ cp llm-motion-director/LLM专用生视频规则skill.md ~/.claude/skills/LLM专�
 - **4 modes:** showreel, product, launch-story, explainer. Each mode sets its own pacing (e.g. a new composition every 1–2.5s for showreels; 125–145 wpm narration for explainers).
 - **11 craft rules:** the first frame is a finished frame, transitions are carried by content, no linear easing, nothing ever freezes, no decorative particles.
 - **Sound first:** beats, climaxes and vocal cues go into `timing.json`, and every animation time is read from it.
-- **Critic loop with rework rules (new):** a fresh reviewer that never saw the production process writes a detailed `issues.md` in round one. The checklist must be cleared before the next full review. Every fix goes through a cheap targeted check first, then a full re-review.
+- **Critic loop with rework rules (new):** a fresh reviewer that never saw the production process writes a detailed `issues.md` in round one. The checklist must be cleared before the next full review. Every fix goes through a cheap targeted check first; full reviews happen only at three milestones.
+- **Incremental scene rendering (new):** `scripts/render-scenes.mjs` splits a HyperFrames project into per-scene segments, hashes each one, re-renders only the scenes that changed, then losslessly concatenates them and muxes the master mix. It also outputs seam contact sheets around every re-rendered cut.
 - **Measurable quality bar:** ±1 frame sync, −14 LUFS / −1 dBTP, 4.5:1 text contrast, ≤0.5s holds, zero fabricated claims, readable with the sound off.
 
-Install by copying `LLM专用生视频规则skill.md` to `~/.claude/skills/<any-name>/SKILL.md`. The rules are written in Chinese; modern LLMs follow them fine regardless of the language you prompt in.
+Install by copying `LLM专用生视频规则skill.md` to `~/.claude/skills/<any-name>/SKILL.md` and the `scripts/` folder next to it. The rules are written in Chinese; modern LLMs follow them fine regardless of the language you prompt in.

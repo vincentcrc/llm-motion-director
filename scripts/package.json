@@ -1,0 +1,9 @@
+{
+  "name": "render-scenes",
+  "private": true,
+  "type": "module",
+  "description": "Scene-level incremental renderer for HyperFrames projects",
+  "dependencies": {
+    "linkedom": "0.18.13"
+  }
+}
